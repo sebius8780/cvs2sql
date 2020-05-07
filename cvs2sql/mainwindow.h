@@ -2,6 +2,10 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
+#include <QTextStream>
+#include <QFile>
+#include <QList>
+#include <QLineEdit>
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -18,7 +22,14 @@ public:
 private slots:
     void on_mBrowseButton_clicked();
 
+    void on_mProcessButton_clicked();
+
+    void on_checkBox_stateChanged(int arg1);
+
 private:
     Ui::MainWindow *ui;
+    QTextStream* mStream;
+    QFile*       mFile;
+    QList<QLineEdit*> mCustomHeaders;
 };
 #endif // MAINWINDOW_H
