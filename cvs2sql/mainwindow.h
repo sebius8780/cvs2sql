@@ -31,5 +31,7 @@ private:
     QTextStream* mStream;
     QFile*       mFile;
     QList<QLineEdit*> mCustomHeaders;
+    char m_sep = ';';
+    QMap<QString, QString> m_comonTrad;
 };
 #endif // MAINWINDOW_H

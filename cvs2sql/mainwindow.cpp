@@ -29,6 +29,9 @@ MainWindow::MainWindow(QWidget *parent)
     ui->setupUi(this);
     ui->mOpProgress->setValue(0);
     QTextCodec::setCodecForLocale(QTextCodec::codecForName("UTF-8"));
+
+    m_comonTrad.insert("true", "Y");
+    m_comonTrad.insert("false", "N");
 }
 
 MainWindow::~MainWindow()
@@ -41,28 +44,45 @@ void MainWindow::on_mBrowseButton_clicked()
 {
    QString fileName = QFileDialog::getOpenFileName(this, tr("Open csv"), QString(), tr("Excel CSV (*.csv)"));
 
-   QStringList header;
+   QList<QByteArray> header;
    mFile = new QFile(fileName);
    ui->mFilenameEdit->setText(fileName);
    mFile->open(QIODevice::ReadOnly | QIODevice::Text);
    mStream = new UnicodedStream(mFile);
    mStream->setCodec("UTF-8");
-   //while (!s1.atEnd())
    {
-     QString s = mStream->readLine(); // reads first line
+     QByteArray s = mStream->readLine().toUtf8(); // reads first line
      if (mStream->atEnd() || s.isEmpty())
      {
         QMessageBox::critical(this, "reading error", "wrong file format ( bad endlines )");
         return;
      }
-     header = s.split(";"); // appends first column to list, ',' is separator
+     header = s.split(m_sep); // appends first column to list, ',' is separator
    }
-   ui->mLogsText->insertPlainText("csv headers : " + QString::fromUtf8(header.join(", ").toUtf8()) + "\n");
+   ui->mLogsText->insertPlainText("csv headers : " + QString::fromUtf8(header.join(", ")) + "\n");
    QVBoxLayout* listWidgetLayout = new QVBoxLayout();
    QString curHeader;
    for (int i = 0; i < header.length(); i++){
        QHBoxLayout *layout = new QHBoxLayout();
-       curHeader = (QString::fromUtf8(header[i].toUtf8()));
+       curHeader = (QString::fromUtf8(header[i]));
+       layout->addWidget(new QLabel(curHeader));
+       QLineEdit* cur = new QLineEdit(curHeader);
+       layout->addWidget(cur);
+       listWidgetLayout->addItem(layout);
+       mCustomHeaders.push_back(cur);
+   }
+
+   QString tableName = fileName;
+   int ind = fileName.lastIndexOf('/');
+   tableName = fileName.mid(ind + 1);
+   tableName.chop(4);
+   ui->mtableNameEdit->setText(tableName);
+   ui->mProcessButton->setEnabled(true);
+
+   if (ui->mGenerateId->isChecked())
+   {
+       QHBoxLayout *layout = new QHBoxLayout();
+       QString curHeader = tableName + "_id";
        layout->addWidget(new QLabel(curHeader));
        QLineEdit* cur = new QLineEdit(curHeader);
        layout->addWidget(cur);
@@ -74,12 +94,8 @@ void MainWindow::on_mBrowseButton_clicked()
    ui->scrollArea->show();
    ui->customEdit->hide();
 
-   QString tableName = fileName;
-   int ind = fileName.lastIndexOf('/');
-   tableName = fileName.mid(ind + 1);
-   tableName.chop(4);
-   ui->mtableNameEdit->setText(tableName);
-   ui->mProcessButton->setEnabled(true);
+
+
 }
 
 void MainWindow::on_mProcessButton_clicked()
@@ -87,13 +103,14 @@ void MainWindow::on_mProcessButton_clicked()
     ui->mProcessButton->setEnabled(false);
     ui->mBrowseButton->setEnabled(false);
     // rest of the file
-    QStringList line;
+    QList<QByteArray> line;
     // QThread
     ui->mCurrentOpeLabel->setText("Current operation : loading file ...");
+    mStream->setCodec("UTF-8");
     while (!mStream->atEnd())
     {
-      QString s = mStream->readLine(); // reads first line
-      line.append(s);
+      QByteArray s = mStream->readLine().toUtf8(); // reads first line
+      line.push_front(s);
     }
     ui->mLogsText->insertPlainText("Number of lines : " + QString::number(line.length()) + "\n");
 
@@ -126,24 +143,40 @@ void MainWindow::on_mProcessButton_clicked()
         rowLimit = line.length();
     ui->mOpProgress->setValue(0);
     ui->mOpProgress->setRange(0, rowLimit + 1);
+    QStringList trads = m_comonTrad.keys();
     for (int i = 0; i < rowLimit; ++i)
     {
+        QString r;
+        for (int t = 0; t < trads.length(); ++t)
+        {
+            r = QString::fromUtf8(line[i]);
+            r = r.replace(trads[t], m_comonTrad[trads[t]]);
+            line[i] = r.toUtf8();
+        }
         if (!isCustom)
         {
+
             outStream << "insert into " << ui->mtableNameEdit->text() << "(" << sqlHeaders.join(",") << ") VALUES ('"
-                      <<  QString::fromUtf8(line[i].replace("\'", "\\'").replace("'", "\'").split(";").join("','").toUtf8())
-                      << "');\n" ;
+                      <<  QString::fromUtf8(line[i].replace("\"", "").replace("\'", "\\'").replace("'", "\'").split(m_sep).join("','"));
+            if (ui->mGenerateId->isChecked())
+            {
+                outStream << "', '000" + QString::number(i);
+            }
+            outStream << "');\n" ;
         }
         else
         {
-            QString ouputFormat = customFormat;
-            QStringList data = line[i].replace("'", "''").split(";");
+            QString ouputFormat = customFormat.toUtf8();
+            QList<QByteArray> data = line[i].replace("\"", "").replace("'", "''").split(m_sep);
+
             for (int j = 0; j < data.length(); ++j)
             {
-                ouputFormat.replace("VALUE_" + QString::number(j), data[j].trimmed());
+                ouputFormat.replace("VALUE_" + QString::number(j), QString::fromUtf8(data[j].trimmed()));
             }
-             outStream << ouputFormat
-                       << ";\n" ;
+            ouputFormat.replace("INDEX", "'000" + QString::number(i) + "'" );
+
+            outStream << ouputFormat.toUtf8()
+                       <<  ";\n" ;
         }
         ui->mOpProgress->setValue(i + 1);
         if ((i % 5000) == 0) outStream.flush(); // regularly flush
@@ -158,6 +191,7 @@ void MainWindow::on_mProcessButton_clicked()
     delete mStream;
     delete mFile;
     ui->mBrowseButton->setEnabled(true);
+    ui->mProcessButton->setEnabled(true);
     ui->mFilenameEdit->setText("");
 }
 
