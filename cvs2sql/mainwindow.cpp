@@ -116,6 +116,7 @@ void MainWindow::on_mProcessButton_clicked()
 
     QStringList sqlHeaders;
     QString customFormat;
+    bool isRemoveDoubles = ui->checkBox_2->isChecked();
     bool isCustom = ui->scrollArea->isHidden();
     if (!isCustom)
     {
@@ -144,6 +145,7 @@ void MainWindow::on_mProcessButton_clicked()
     ui->mOpProgress->setValue(0);
     ui->mOpProgress->setRange(0, rowLimit + 1);
     QStringList trads = m_comonTrad.keys();
+    QStringList lines;
     for (int i = 0; i < rowLimit; ++i)
     {
         QString r;
@@ -171,12 +173,28 @@ void MainWindow::on_mProcessButton_clicked()
 
             for (int j = 0; j < data.length(); ++j)
             {
-                ouputFormat.replace("VALUE_" + QString::number(j), QString::fromUtf8(data[j].trimmed()));
+                QString item = QString::fromUtf8(data[j].trimmed());
+                ouputFormat.replace("VALUE_" + QString::number(j), item);
             }
-            ouputFormat.replace("INDEX", "'000" + QString::number(i) + "'" );
 
-            outStream << ouputFormat.toUtf8()
-                       <<  ";\n" ;
+            bool writeLine = true;
+
+            if (isRemoveDoubles)
+            {
+                QByteArray item = ouputFormat.toUtf8();
+                if (lines.contains(item))
+                {
+                    writeLine = false;
+                }
+                lines.push_back(item);
+            }
+
+            if (writeLine)
+            {
+                ouputFormat.replace("INDEX", "'000" + QString::number(i) + "'" );
+                outStream << ouputFormat.toUtf8()
+                           <<  ";\n" ;
+            }
         }
         ui->mOpProgress->setValue(i + 1);
         if ((i % 5000) == 0) outStream.flush(); // regularly flush
