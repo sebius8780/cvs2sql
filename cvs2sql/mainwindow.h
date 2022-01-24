@@ -19,12 +19,16 @@ public:
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 
+    void fillCustomEdit();
+
 private slots:
     void on_mBrowseButton_clicked();
 
     void on_mProcessButton_clicked();
 
     void on_checkBox_stateChanged(int arg1);
+
+    void on_sepEdit_textChanged(const QString &arg1);
 
 private:
     Ui::MainWindow *ui;

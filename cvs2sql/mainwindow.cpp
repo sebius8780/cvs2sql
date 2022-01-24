@@ -5,6 +5,7 @@
 #include <QTextStream>
 #include <QMessageBox>
 #include <QTextCodec>
+#include <QRegularExpression>
 
 struct UnicodedStream : QTextStream
 {
@@ -32,11 +33,45 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_comonTrad.insert("true", "Y");
     m_comonTrad.insert("false", "N");
+
+    ui->sepEdit->setText(QString(m_sep));
 }
 
 MainWindow::~MainWindow()
 {
     delete ui;
+}
+
+void MainWindow::fillCustomEdit()
+{
+    QString tempFormat = "insert into (";
+
+    QString fieldsName = "";
+    QString values = "";
+
+    int prefix = 'A';
+    int suffix = '0';
+
+    for (int i = 0; i < mCustomHeaders.length(); i++)
+    {
+        fieldsName += mCustomHeaders[i]->text();
+        values += "'VALUE_" + QString(prefix) + QString(suffix) + "'";
+        if (i < mCustomHeaders.length() - 1)
+        {
+            fieldsName += ", ";
+            values += ", ";
+        }
+        suffix++;
+        if (suffix > '9')
+        {
+            prefix++;
+            suffix = '0';
+        }
+    }
+    tempFormat += fieldsName;
+    tempFormat += ") VALUES ( ";
+    tempFormat += values + " )";
+    ui->customEdit->setPlainText(tempFormat);
 }
 
 
@@ -59,12 +94,16 @@ void MainWindow::on_mBrowseButton_clicked()
      }
      header = s.split(m_sep); // appends first column to list, ',' is separator
    }
+   if (header.length() <= 1)
+   {
+    ui->mLogsText->insertPlainText("Warning ! headers have only one itm ! \n");
+   }
    ui->mLogsText->insertPlainText("csv headers : " + QString::fromUtf8(header.join(", ")) + "\n");
    QVBoxLayout* listWidgetLayout = new QVBoxLayout();
    QString curHeader;
    for (int i = 0; i < header.length(); i++){
        QHBoxLayout *layout = new QHBoxLayout();
-       curHeader = (QString::fromUtf8(header[i]));
+       curHeader = (QString::fromUtf8(header[i].replace("\"", "").replace("\'", "")));
        layout->addWidget(new QLabel(curHeader));
        QLineEdit* cur = new QLineEdit(curHeader);
        layout->addWidget(cur);
@@ -93,9 +132,6 @@ void MainWindow::on_mBrowseButton_clicked()
    ui->scrollArea->setLayout(listWidgetLayout);
    ui->scrollArea->show();
    ui->customEdit->hide();
-
-
-
 }
 
 void MainWindow::on_mProcessButton_clicked()
@@ -106,6 +142,8 @@ void MainWindow::on_mProcessButton_clicked()
     QList<QByteArray> line;
     // QThread
     ui->mCurrentOpeLabel->setText("Current operation : loading file ...");
+    mStream->seek(0); // rewind
+    mStream->readLine(); // read header line
     mStream->setCodec("UTF-8");
     while (!mStream->atEnd())
     {
@@ -135,8 +173,7 @@ void MainWindow::on_mProcessButton_clicked()
     outFile.open(QIODevice::WriteOnly | QIODevice::Text);
     UnicodedStream outStream(&outFile);
     outStream.setCodec("UTF-8");
-    // test
-    QString sqlLine = "toto, titi";
+
     // write the output file
     ui->mCurrentOpeLabel->setText("Current operation : writing sql file ...");
     int rowLimit = ui->mLimitRowsEdit->text().toInt();
@@ -146,6 +183,8 @@ void MainWindow::on_mProcessButton_clicked()
     ui->mOpProgress->setRange(0, rowLimit + 1);
     QStringList trads = m_comonTrad.keys();
     QStringList lines;
+
+
     for (int i = 0; i < rowLimit; ++i)
     {
         QString r;
@@ -157,7 +196,6 @@ void MainWindow::on_mProcessButton_clicked()
         }
         if (!isCustom)
         {
-
             outStream << "insert into " << ui->mtableNameEdit->text() << "(" << sqlHeaders.join(",") << ") VALUES ('"
                       <<  QString::fromUtf8(line[i].replace("\"", "").replace("\'", "\\'").replace("'", "\'").split(m_sep).join("','"));
             if (ui->mGenerateId->isChecked())
@@ -168,20 +206,48 @@ void MainWindow::on_mProcessButton_clicked()
         }
         else
         {
-            QString ouputFormat = customFormat.toUtf8();
-            QList<QByteArray> data = line[i].replace("\"", "").replace("'", "''").split(m_sep);
+            QList<QByteArray> data = line[i].split(m_sep);
+            QString outputFormat = customFormat;
 
+            QString finalItem;
+            QString key;
+            int prefix = 'A';
+            int suffix = '0';
             for (int j = 0; j < data.length(); ++j)
             {
-                QString item = QString::fromUtf8(data[j].trimmed());
-                ouputFormat.replace("VALUE_" + QString::number(j), item);
+                finalItem = data[j].trimmed();
+                finalItem = data[j].trimmed().replace("\"", "");
+                if (finalItem.startsWith("'"))
+                {
+                    // crop
+                    finalItem = finalItem.mid(1);
+                    finalItem = finalItem.mid(0, finalItem.length() - 2);
+                }
+                finalItem = finalItem.replace("'", "''"); // escaping ' in strings
+                if (finalItem == " " || finalItem.isEmpty())
+                {
+                    // in case of '' we remove them also
+                    outputFormat = outputFormat.replace("'VALUE_" + QString(prefix) + QString(suffix) + "'", "null");
+                    outputFormat = outputFormat.replace("VALUE_" + QString(prefix) + QString(suffix), "null");
+                }
+                else
+                {
+                    outputFormat = outputFormat.replace("VALUE_" + QString(prefix) + QString(suffix), finalItem);
+                }
+                suffix++;
+                if (suffix > '9')
+                {
+                    prefix++;
+                    suffix = '0';
+                }
             }
+
 
             bool writeLine = true;
 
             if (isRemoveDoubles)
             {
-                QByteArray item = ouputFormat.toUtf8();
+                QByteArray item = outputFormat.toUtf8();
                 if (lines.contains(item))
                 {
                     writeLine = false;
@@ -189,10 +255,11 @@ void MainWindow::on_mProcessButton_clicked()
                 lines.push_back(item);
             }
 
+
             if (writeLine)
             {
-                ouputFormat.replace("INDEX", "'000" + QString::number(i) + "'" );
-                outStream << ouputFormat.toUtf8()
+                outputFormat.replace("INDEX", "'000" + QString::number(i) + "'" );
+                outStream << outputFormat.toUtf8()
                            <<  ";\n" ;
             }
         }
@@ -206,7 +273,6 @@ void MainWindow::on_mProcessButton_clicked()
     ui->mLogsText->insertPlainText("File written : " + outFileName);
 
     mFile->close();
-    delete mStream;
     delete mFile;
     ui->mBrowseButton->setEnabled(true);
     ui->mProcessButton->setEnabled(true);
@@ -219,10 +285,22 @@ void MainWindow::on_checkBox_stateChanged(int arg1)
     {
         ui->customEdit->show();
         ui->scrollArea->hide();
+
+        fillCustomEdit();
+
     }
     else
     {
-        ui->customEdit->show();
-        ui->scrollArea->hide();
+        ui->customEdit->hide();
+        ui->scrollArea->show();
     }
 }
+
+void MainWindow::on_sepEdit_textChanged(const QString &arg1)
+{
+    if (arg1.length() == 1)
+    {
+        m_sep = arg1.at(0).toLatin1();
+    }
+}
+
